@@ -3,7 +3,7 @@ import { AIReportData, StudentProfile, DomainType } from '../types';
 
 export function downloadPDFReport(report: AIReportData, student: StudentProfile, domain: DomainType) {
   const activeRounds = report.completedRounds || [];
-  if (activeRounds.length === 0) return;
+  if (activeRounds.length === 0 || !report.hasSufficientResponses) return;
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -15,9 +15,6 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 15;
   let y = margin;
-
-  // Colors
-  const textDark = '#1e293b';
 
   // Helper for page overflow
   const checkNewPage = (neededSpace: number) => {
@@ -57,7 +54,7 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   // Candidate Info Box
   doc.setFillColor(240, 253, 244);
   doc.setDrawColor(187, 247, 208);
-  doc.roundedRect(margin, y, pageWidth - (margin * 2), 24, 3, 3, 'FD');
+  doc.roundedRect(margin, y, pageWidth - (margin * 2), 26, 3, 3, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -68,9 +65,9 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   doc.setFontSize(9);
   doc.setTextColor(51, 65, 85);
   doc.text(`USN: ${student.usn}   |   Branch: ${student.branch}   |   Semester: ${student.semester}`, margin + 5, y + 13);
-  doc.text(`Target Domain: ${domain}   |   Evaluated Rounds: ${activeRounds.join(', ')}`, margin + 5, y + 19);
+  doc.text(`Target Domain: ${domain}   |   Answered: ${report.answeredCount}   |   Skipped: ${report.skippedCount}`, margin + 5, y + 19);
 
-  y += 30;
+  y += 32;
 
   const renderSection = (title: string, content?: string, icon = "•") => {
     if (!content || !content.trim()) return;
@@ -138,7 +135,7 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   checkNewPage(15);
   doc.setFontSize(8);
   doc.setTextColor(148, 163, 184);
-  doc.text("AI Interview Coach Platform | Certified AI Evaluation", pageWidth / 2, pageHeight - 8, { align: 'center' });
+  doc.text("AI Interview Coach Platform | Certified Answered-Only AI Evaluation", pageWidth / 2, pageHeight - 8, { align: 'center' });
 
   // Save PDF
   const filename = `AI_Interview_Coach_Report_${student.name.replace(/\s+/g, '_')}_${domain.replace(/\s+/g, '_')}.pdf`;

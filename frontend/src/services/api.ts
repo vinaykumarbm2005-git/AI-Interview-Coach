@@ -1,4 +1,4 @@
-import { DomainType, RoundType, Question, RoundEvaluation, AIReportData } from '../types';
+import { DomainType, RoundType, Question, RoundEvaluation, AIReportData, QuestionEvaluation } from '../types';
 
 const API_BASE = '/api/ai';
 
@@ -66,14 +66,14 @@ function generateClientQuestions(domain: DomainType, roundType: RoundType, count
       id: i + 1,
       question: `[${domain} Technical #${i + 1}] Explain how you design, optimize, and evaluate scalable solutions under production constraints. What are the key architectural trade-offs involved?`,
       category: `${domain} Core`,
-      difficulty: i % 3 === 0 ? "Hard" : i % 2 === 0 ? "Medium" : "Easy"
+      difficulty: "Medium"
     }));
   } else if (roundType === 'coding') {
     return Array.from({ length: count }, (_, i) => ({
       id: i + 1,
       question: `[${domain} Coding Challenge #${i + 1}] Implement an algorithm that processes input data stream in O(N) time with minimal auxiliary space.`,
       category: "Algorithms",
-      difficulty: i % 2 === 0 ? "Medium" : "Hard",
+      difficulty: "Medium",
       codeTemplate: `def solve_${i + 1}(data):\n    # Write clean code for ${domain}\n    pass`,
       sampleInput: `data = [${i + 10}, ${i + 20}, ${i + 30}]`,
       sampleOutput: `result = ${i * 5 + 10}`,
@@ -90,26 +90,73 @@ function generateClientQuestions(domain: DomainType, roundType: RoundType, count
 }
 
 function generateClientEvaluation(domain: DomainType, roundType: RoundType, questions: Question[], answers: Record<number, string>): RoundEvaluation {
-  const answeredCount = Object.keys(answers).filter(k => answers[Number(k)]?.trim().length > 0).length;
-  const completionRate = Math.round((answeredCount / questions.length) * 100);
+  const totalQuestions = questions.length;
 
-  const questionEvaluations = questions.map(q => {
+  const answeredQs = questions.filter(q => (answers[q.id]?.trim() || '').length > 0);
+  const skippedQs = questions.filter(q => (answers[q.id]?.trim() || '').length === 0);
+
+  const answeredCount = answeredQs.length;
+  const skippedCount = skippedQs.length;
+
+  // EDGE CASE: 0 Answered Questions (All Skipped)
+  if (answeredCount === 0) {
+    return {
+      roundType,
+      domain,
+      metrics: {
+        completionStatus: `0 Answered, ${skippedCount} Skipped`,
+        answeredQuestions: 0,
+        skippedQuestions: skippedCount,
+        score: "N/A"
+      },
+      strengths: [],
+      weaknesses: [],
+      feedbackSummary: "No sufficient responses available for AI evaluation. You skipped all interview questions. Please answer at least one question to receive AI analysis.",
+      questionEvaluations: questions.map(q => ({
+        questionId: q.id,
+        questionText: q.question,
+        candidateAnswer: '',
+        status: 'Skipped' as const
+      })),
+      overallScore: null,
+      answeredCount: 0,
+      skippedCount,
+      totalQuestions,
+      hasSufficientResponses: false
+    };
+  }
+
+  // Client Evaluation for Answered Questions Only
+  const questionEvaluations: QuestionEvaluation[] = answeredQs.map(q => {
     const ans = answers[q.id]?.trim() || '';
-    const hasAnswer = ans.length > 5;
+    const score = Math.min(96, 75 + Math.min(ans.length, 20));
     return {
       questionId: q.id,
       questionText: q.question,
       candidateAnswer: ans,
-      score: hasAnswer ? Math.min(96, 75 + Math.min(ans.length, 20)) : 40,
-      strengths: hasAnswer ? ["Clear explanation structure", "Relevant domain vocabulary"] : ["Attempted question"],
-      weaknesses: hasAnswer ? ["Can include more quantitative benchmarks"] : ["Incomplete answer"],
-      feedback: hasAnswer ? "Good conceptual grasp demonstrated." : "Answer lacks depth.",
+      status: 'Answered' as const,
+      score,
+      strengths: ["Clear explanation structure", "Relevant domain vocabulary"],
+      weaknesses: ["Can include more quantitative benchmarks"],
+      feedback: "Good conceptual grasp demonstrated.",
       improvement: "Elaborate with specific project metrics.",
       confidence: 88
     };
   });
 
-  const avgScore = Math.round(questionEvaluations.reduce((acc, q) => acc + q.score, 0) / questionEvaluations.length);
+  skippedQs.forEach(q => {
+    questionEvaluations.push({
+      questionId: q.id,
+      questionText: q.question,
+      candidateAnswer: '',
+      status: 'Skipped' as const
+    });
+  });
+
+  const answeredQEs = questionEvaluations.filter(q => q.status === 'Answered' && typeof q.score === 'number');
+  const avgScore = Math.round(answeredQEs.reduce((acc, q) => acc + (q.score || 0), 0) / answeredQEs.length);
+
+  const completionStatus = `Evaluated on ${answeredCount} answered responses (${skippedCount} skipped)`;
 
   if (roundType === 'technical') {
     return {
@@ -120,13 +167,19 @@ function generateClientEvaluation(domain: DomainType, roundType: RoundType, ques
         accuracy: `${Math.min(98, avgScore + 2)}%`,
         strongTopics: `${domain} Architecture, Problem Breakdown, Core Patterns`,
         weakTopics: `Edge-case fault recovery, Memory profiling`,
-        completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`
+        completionStatus,
+        answeredQuestions: answeredCount,
+        skippedQuestions: skippedCount
       },
       strengths: ["Clear logical structure", "Good domain vocabulary"],
       weaknesses: ["Add more quantitative metrics"],
-      feedbackSummary: `Evaluated Technical round candidate answers for ${domain}.`,
+      feedbackSummary: `Evaluated Technical round candidate answers (${answeredCount} answered, ${skippedCount} skipped).`,
       questionEvaluations,
-      overallScore: avgScore
+      overallScore: avgScore,
+      answeredCount,
+      skippedCount,
+      totalQuestions,
+      hasSufficientResponses: true
     };
   } else if (roundType === 'coding') {
     return {
@@ -137,13 +190,19 @@ function generateClientEvaluation(domain: DomainType, roundType: RoundType, ques
         logic: `${Math.min(98, avgScore + 3)}/100 (Optimal Approach)`,
         problemSolving: `${avgScore}/100 (Strong Data Structures)`,
         timeManagement: "86/100 (Paced well)",
-        completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} challenges)`
+        completionStatus,
+        answeredQuestions: answeredCount,
+        skippedQuestions: skippedCount
       },
       strengths: ["Modular functions", "Clean code styling"],
       weaknesses: ["Boundary check edge cases"],
-      feedbackSummary: `Evaluated Coding round solutions for ${domain}.`,
+      feedbackSummary: `Evaluated Coding round solutions (${answeredCount} answered, ${skippedCount} skipped).`,
       questionEvaluations,
-      overallScore: avgScore
+      overallScore: avgScore,
+      answeredCount,
+      skippedCount,
+      totalQuestions,
+      hasSufficientResponses: true
     };
   } else {
     return {
@@ -154,13 +213,19 @@ function generateClientEvaluation(domain: DomainType, roundType: RoundType, ques
         confidence: `${Math.min(98, avgScore + 1)}/100 (Decisive)`,
         professionalism: "95/100 (High standards)",
         leadership: "88/100 (Collaborative)",
-        completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`
+        completionStatus,
+        answeredQuestions: answeredCount,
+        skippedQuestions: skippedCount
       },
       strengths: ["STAR method articulation", "Clear accountability"],
       weaknesses: ["Provide more quantitative metric metrics"],
-      feedbackSummary: `Evaluated HR round behavioral responses for ${domain}.`,
+      feedbackSummary: `Evaluated HR round behavioral responses (${answeredCount} answered, ${skippedCount} skipped).`,
       questionEvaluations,
-      overallScore: avgScore
+      overallScore: avgScore,
+      answeredCount,
+      skippedCount,
+      totalQuestions,
+      hasSufficientResponses: true
     };
   }
 }
@@ -171,25 +236,57 @@ function generateClientReport(
   evaluations: { technical?: RoundEvaluation; coding?: RoundEvaluation; hr?: RoundEvaluation },
   activeRounds: RoundType[]
 ): AIReportData {
-  const hasTech = activeRounds.includes('technical');
-  const hasCode = activeRounds.includes('coding');
-  const hasHR = activeRounds.includes('hr');
+  let totalAnswered = 0;
+  let totalSkipped = 0;
+  let totalQs = 0;
 
-  const summary = `Candidate ${studentName} completed evaluation for ${domain} across completed round(s): ${activeRounds.map(r => r.toUpperCase()).join(', ')}. Assessment is derived strictly from candidate responses.`;
+  activeRounds.forEach(r => {
+    const ev = evaluations[r];
+    if (ev) {
+      totalAnswered += ev.answeredCount || 0;
+      totalSkipped += ev.skippedCount || 0;
+      totalQs += ev.totalQuestions || 0;
+    }
+  });
 
-  const techSummary = hasTech ? `Technical Round Analysis: Candidate demonstrated strong fundamental knowledge of ${domain} concepts.` : undefined;
-  const techStr = hasTech ? (evaluations.technical?.strengths || ["Structured reasoning", "Good domain vocabulary"]).join('. ') : undefined;
-  const techWeak = hasTech ? (evaluations.technical?.weaknesses || ["Add quantitative benchmarks"]).join('. ') : undefined;
-  const techRec = hasTech ? `Focus on deep-dive system design trade-offs and operational scaling for ${domain}.` : undefined;
+  if (totalAnswered === 0) {
+    return {
+      completedRounds: activeRounds,
+      answeredCount: 0,
+      skippedCount: totalSkipped,
+      totalQuestions: totalQs,
+      hasSufficientResponses: false,
+      totalWordCount: 0,
+      overallSummary: "No sufficient responses available for AI evaluation. You skipped all interview questions. Please answer at least one question to receive AI analysis."
+    };
+  }
 
-  const codeSummary = hasCode ? `Coding Round Analysis: Solutions exhibited modular function structure, clean algorithm logic, and readable syntax.` : undefined;
-  const codeStr = hasCode ? (evaluations.coding?.strengths || ["Modular algorithm design", "Clean formatting"]).join('. ') : undefined;
-  const codeWeak = hasCode ? (evaluations.coding?.weaknesses || ["Boundary checks for null inputs"]).join('. ') : undefined;
-  const codeRec = hasCode ? `Practice algorithm edge cases and auxiliary space optimization.` : undefined;
+  const validEvals: Record<string, RoundEvaluation> = {};
+  activeRounds.forEach(r => {
+    if (evaluations[r] && evaluations[r]?.hasSufficientResponses) {
+      validEvals[r] = evaluations[r]!;
+    }
+  });
 
-  const hrSummary = hasHR ? `HR Round Analysis: Behavioral answers effectively utilized the STAR method with clear personal accountability.` : undefined;
-  const hrStr = hasHR ? (evaluations.hr?.strengths || ["STAR framework articulation", "Leadership ownership"]).join('. ') : undefined;
-  const hrWeak = hasHR ? (evaluations.hr?.weaknesses || ["Provide more quantitative metric metrics"]).join('. ') : undefined;
+  const hasTech = Boolean(validEvals.technical);
+  const hasCode = Boolean(validEvals.coding);
+  const hasHR = Boolean(validEvals.hr);
+
+  const summary = `Answered Questions: ${totalAnswered} | Skipped Questions: ${totalSkipped} | Evaluation Based On: ${totalAnswered} answered responses only.\nCandidate ${studentName} completed evaluation for ${domain} across ${activeRounds.map(r => r.toUpperCase()).join(', ')}. Assessment is derived strictly from candidate responses.`;
+
+  const techSummary = hasTech ? `Technical Round Analysis (${validEvals.technical?.answeredCount} answered): Candidate demonstrated strong fundamental knowledge of ${domain} concepts.` : undefined;
+  const techStr = hasTech ? (validEvals.technical?.strengths || ["Structured reasoning", "Good domain vocabulary"]).join('. ') : undefined;
+  const techWeak = hasTech ? (validEvals.technical?.weaknesses || ["Add quantitative benchmarks"]).join('. ') : undefined;
+  const techRec = hasTech ? `Focus on deep-dive system design trade-offs for ${domain}.` : undefined;
+
+  const codeSummary = hasCode ? `Coding Round Analysis (${validEvals.coding?.answeredCount} answered): Solutions exhibited modular function structure and clean algorithm logic.` : undefined;
+  const codeStr = hasCode ? (validEvals.coding?.strengths || ["Modular algorithm design", "Clean formatting"]).join('. ') : undefined;
+  const codeWeak = hasCode ? (validEvals.coding?.weaknesses || ["Boundary checks for null inputs"]).join('. ') : undefined;
+  const codeRec = hasCode ? `Practice algorithm edge cases and space complexity optimization.` : undefined;
+
+  const hrSummary = hasHR ? `HR Round Analysis (${validEvals.hr?.answeredCount} answered): Behavioral answers effectively utilized the STAR method.` : undefined;
+  const hrStr = hasHR ? (validEvals.hr?.strengths || ["STAR framework articulation", "Leadership ownership"]).join('. ') : undefined;
+  const hrWeak = hasHR ? (validEvals.hr?.weaknesses || ["Provide more quantitative metric metrics"]).join('. ') : undefined;
   const hrRec = hasHR ? `Incorporate specific numerical metrics into behavioral project stories.` : undefined;
 
   const strongA = [
@@ -204,11 +301,11 @@ function generateClientReport(
     hasHR ? `• HR Weaknesses: ${hrWeak}` : null
   ].filter(Boolean).join('\n');
 
-  const areasImp = `Systematically address key feedback across completed rounds (${activeRounds.join(', ')}). Attach quantitative metrics to project outcomes.`;
-  const recTop = `• Advanced ${domain} Architecture & Production Scenarios\n• Algorithmic Problem Solving & Edge Cases\n• STAR Method Behavioral Storytelling`;
-  const roadmap = `Week 1: Address identified gap topics in ${activeRounds.join(', ')} rounds.\nWeek 2: Advanced problem-solving & architecture practice.\nWeek 3: Targeted mock interview drills.\nWeek 4: Final placement readiness review.`;
-  const readiness = `RECOMMENDED (${activeRounds.length}/3 Rounds Evaluated). Candidate ${studentName} shows strong readiness for ${domain} based on completed rounds.`;
-  const conclusion = `Congratulations to ${studentName} on completing the ${activeRounds.join(', ')} round(s). Pursue the recommended roadmap for interview success.`;
+  const areasImp = `Systematically address key feedback across answered responses (${totalAnswered} answered, ${totalSkipped} skipped).`;
+  const recTop = `• Advanced ${domain} Architecture & Production Scenarios\n• Algorithmic Edge Cases\n• STAR Method Storytelling`;
+  const roadmap = `Week 1: Address identified gap topics in answered questions.\nWeek 2: Advanced problem-solving practice.\nWeek 3: Targeted mock interview drills.\nWeek 4: Final placement readiness review.`;
+  const readiness = `RECOMMENDED (${totalAnswered} Answered Responses Evaluated). Candidate ${studentName} shows strong readiness based on answered evaluations.`;
+  const conclusion = `Congratulations to ${studentName} on completing the ${activeRounds.join(', ')} round(s).`;
 
   const fullText = [
     summary, techSummary, techStr, techWeak, techRec,
@@ -219,25 +316,29 @@ function generateClientReport(
 
   return {
     completedRounds: activeRounds,
+    answeredCount: totalAnswered,
+    skippedCount: totalSkipped,
+    totalQuestions: totalQs,
+    hasSufficientResponses: true,
     overallScore: 85,
     overallSummary: summary,
     technicalSummary: techSummary,
     technicalStrengths: techStr,
     technicalWeaknesses: techWeak,
-    technicalScore: hasTech ? (evaluations.technical?.overallScore || 85) : undefined,
+    technicalScore: hasTech ? (validEvals.technical?.overallScore || 85) : undefined,
     technicalRecommendations: techRec,
     codingSummary: codeSummary,
     codingStrengths: codeStr,
     codingWeaknesses: codeWeak,
-    codingScore: hasCode ? (evaluations.coding?.overallScore || 88) : undefined,
+    codingScore: hasCode ? (validEvals.coding?.overallScore || 88) : undefined,
     codingRecommendations: codeRec,
     hrSummary: hrSummary,
     hrStrengths: hrStr,
     hrWeaknesses: hrWeak,
-    hrScore: hasHR ? (evaluations.hr?.overallScore || 90) : undefined,
+    hrScore: hasHR ? (validEvals.hr?.overallScore || 90) : undefined,
     hrRecommendations: hrRec,
-    combinedStrengths: activeRounds.length > 1 ? strongA : undefined,
-    combinedWeaknesses: activeRounds.length > 1 ? weakA : undefined,
+    combinedStrengths: Object.keys(validEvals).length > 1 ? strongA : undefined,
+    combinedWeaknesses: Object.keys(validEvals).length > 1 ? weakA : undefined,
     strongAreas: strongA,
     weakAreas: weakA,
     areasForImprovement: areasImp,

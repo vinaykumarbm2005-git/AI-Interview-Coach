@@ -21,12 +21,13 @@ export interface QuestionEvaluation {
   questionId: number;
   questionText: string;
   candidateAnswer: string;
-  score: number;
-  strengths: string[];
-  weaknesses: string[];
-  feedback: string;
-  improvement: string;
-  confidence: number;
+  status: 'Answered' | 'Skipped' | 'Not Visited';
+  score?: number;
+  strengths?: string[];
+  weaknesses?: string[];
+  feedback?: string;
+  improvement?: string;
+  confidence?: number;
 }
 
 export interface RoundEvaluationResult {
@@ -37,11 +38,19 @@ export interface RoundEvaluationResult {
   weaknesses: string[];
   feedbackSummary: string;
   questionEvaluations?: QuestionEvaluation[];
-  overallScore?: number;
+  overallScore?: number | null;
+  answeredCount: number;
+  skippedCount: number;
+  totalQuestions: number;
+  hasSufficientResponses: boolean;
 }
 
 export interface ComprehensiveReport {
   completedRounds: ('technical' | 'coding' | 'hr')[];
+  answeredCount: number;
+  skippedCount: number;
+  totalQuestions: number;
+  hasSufficientResponses: boolean;
   overallScore?: number;
   overallSummary?: string;
   technicalSummary?: string;
@@ -144,30 +153,79 @@ Output MUST be valid JSON object with schema:
     questions: QuestionItem[],
     answers: Record<number, string>
   ): Promise<RoundEvaluationResult> {
-    const answeredEntries = questions.map(q => ({
-      questionId: q.id,
-      question: q.question,
-      category: q.category || `${domain} ${roundType}`,
-      difficulty: q.difficulty || 'Medium',
-      answer: answers[q.id]?.trim() || ''
-    }));
+    const totalQuestions = questions.length;
 
-    const answeredCount = answeredEntries.filter(e => e.answer.length > 0).length;
-    const completionRate = Math.round((answeredCount / questions.length) * 100);
+    // Partition questions into Answered vs Skipped
+    const answeredEntries: { questionId: number; question: string; category: string; difficulty: string; answer: string }[] = [];
+    const skippedEntries: { questionId: number; question: string }[] = [];
 
+    questions.forEach(q => {
+      const ans = answers[q.id]?.trim() || '';
+      if (ans.length > 0) {
+        answeredEntries.push({
+          questionId: q.id,
+          question: q.question,
+          category: q.category || `${domain} ${roundType}`,
+          difficulty: q.difficulty || 'Medium',
+          answer: ans
+        });
+      } else {
+        skippedEntries.push({
+          questionId: q.id,
+          question: q.question
+        });
+      }
+    });
+
+    const answeredCount = answeredEntries.length;
+    const skippedCount = skippedEntries.length;
+
+    // EDGE CASE: If Candidate Skipped ALL Questions (0 answered)
+    if (answeredCount === 0) {
+      return {
+        roundType,
+        domain,
+        metrics: {
+          completionStatus: `0 Answered, ${skippedCount} Skipped`,
+          answeredQuestions: 0,
+          skippedQuestions: skippedCount,
+          score: "N/A"
+        },
+        strengths: [],
+        weaknesses: [],
+        feedbackSummary: "No sufficient responses available for AI evaluation. You skipped all interview questions. Please answer at least one question to receive AI analysis.",
+        questionEvaluations: questions.map(q => ({
+          questionId: q.id,
+          questionText: q.question,
+          candidateAnswer: '',
+          status: 'Skipped'
+        })),
+        overallScore: null,
+        answeredCount: 0,
+        skippedCount,
+        totalQuestions,
+        hasSufficientResponses: false
+      };
+    }
+
+    // Process ONLY Answered Questions with AI
     const questionEvaluations: QuestionEvaluation[] = [];
 
     if (groq) {
       try {
-        const evalPrompt = `You are an expert AI Interview Assessor.
-Evaluate the candidate's answers individually for each question in a ${roundType} round for role "${domain}".
+        const evalPrompt = `You are an expert AI Interview Assessor evaluating a ${roundType} round for role "${domain}".
 
-Questions and Candidate Responses:
+CRITICAL RULE:
+Evaluate ONLY the ${answeredCount} questions that the candidate actually answered below.
+Do NOT generate scores, confidence, strengths, weaknesses, or recommendations for skipped questions.
+
+Candidate Answered Responses (${answeredCount} total):
 ${answeredEntries.map(e => `Question ID ${e.questionId}: "${e.question}" [Category: ${e.category}, Difficulty: ${e.difficulty}]
-Candidate Answer: "${e.answer || '[No Answer Provided]'}"
+Candidate Answer: "${e.answer}"
 ---`).join('\n')}
 
-For EVERY question, provide an evaluation object with:
+For EVERY answered question above, provide an evaluation object with:
+- questionId: number
 - score: number (0-100 based strictly on answer accuracy and quality)
 - strengths: array of specific strengths shown in the answer
 - weaknesses: array of specific flaws or missing details
@@ -175,7 +233,7 @@ For EVERY question, provide an evaluation object with:
 - improvement: actionable suggestion string
 - confidence: confidence score 0-100
 
-Also compute round metrics, overall strengths, weaknesses, and a summary.
+Also compute round metrics, overall strengths, weaknesses, and a summary BASED EXCLUSIVELY ON ANSWERED RESPONSES.
 Return JSON with schema:
 {
   "questionEvaluations": [
@@ -189,7 +247,7 @@ Return JSON with schema:
       "confidence": 90
     }
   ],
-  "metrics": ${roundType === 'technical' ? '{"score": "85/100", "accuracy": "88%", "strongTopics": "...", "weakTopics": "...", "completionStatus": "..."}' : roundType === 'coding' ? '{"codeQuality": "88/100", "logic": "90/100", "problemSolving": "85/100", "timeManagement": "85/100", "completionStatus": "..."}' : '{"communication": "92/100", "confidence": "90/100", "professionalism": "94/100", "leadership": "88/100", "completionStatus": "..."}'},
+  "metrics": ${roundType === 'technical' ? '{"score": "85/100", "accuracy": "88%", "strongTopics": "...", "weakTopics": "..."}' : roundType === 'coding' ? '{"codeQuality": "88/100", "logic": "90/100", "problemSolving": "85/100", "timeManagement": "85/100"}' : '{"communication": "92/100", "confidence": "90/100", "professionalism": "94/100", "leadership": "88/100"}'},
   "strengths": ["..."],
   "weaknesses": ["..."],
   "feedbackSummary": "..."
@@ -199,14 +257,16 @@ Return JSON with schema:
           model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: evalPrompt },
-            { role: 'user', content: 'Evaluate individual question responses. Return JSON.' }
+            { role: 'user', content: `Evaluate ${answeredCount} answered responses. Ignore skipped questions. Return JSON.` }
           ],
           response_format: { type: 'json_object' }
         });
 
         const parsed = JSON.parse(res.choices[0]?.message?.content || '{}');
         if (parsed.metrics) {
-          parsed.metrics.completionStatus = `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`;
+          parsed.metrics.completionStatus = `Evaluated on ${answeredCount} answered responses (${skippedCount} skipped)`;
+          parsed.metrics.answeredQuestions = answeredCount;
+          parsed.metrics.skippedQuestions = skippedCount;
           
           if (Array.isArray(parsed.questionEvaluations)) {
             parsed.questionEvaluations.forEach((qe: any) => {
@@ -215,6 +275,7 @@ Return JSON with schema:
                 questionId: qe.questionId,
                 questionText: matchingQ?.question || `Question #${qe.questionId}`,
                 candidateAnswer: answers[qe.questionId] || '',
+                status: 'Answered',
                 score: Number(qe.score) || 75,
                 strengths: qe.strengths || [],
                 weaknesses: qe.weaknesses || [],
@@ -225,8 +286,20 @@ Return JSON with schema:
             });
           }
 
-          const avgScore = questionEvaluations.length > 0
-            ? Math.round(questionEvaluations.reduce((acc, q) => acc + q.score, 0) / questionEvaluations.length)
+          // Add Skipped Questions without evaluation metrics
+          skippedEntries.forEach(sq => {
+            questionEvaluations.push({
+              questionId: sq.questionId,
+              questionText: sq.question,
+              candidateAnswer: '',
+              status: 'Skipped'
+            });
+          });
+
+          // Average score strictly calculated from ANSWERED questions
+          const answeredQEs = questionEvaluations.filter(q => q.status === 'Answered' && typeof q.score === 'number');
+          const avgScore = answeredQEs.length > 0
+            ? Math.round(answeredQEs.reduce((acc, q) => acc + (q.score || 0), 0) / answeredQEs.length)
             : 80;
 
           return {
@@ -235,34 +308,54 @@ Return JSON with schema:
             metrics: parsed.metrics,
             strengths: parsed.strengths || ["Structured reasoning", "Good domain vocabulary"],
             weaknesses: parsed.weaknesses || ["Could elaborate on edge cases"],
-            feedbackSummary: parsed.feedbackSummary || `Evaluated ${answeredCount} responses for ${domain} ${roundType} round.`,
+            feedbackSummary: parsed.feedbackSummary || `Evaluated on ${answeredCount} answered responses (${skippedCount} skipped).`,
             questionEvaluations,
-            overallScore: avgScore
+            overallScore: avgScore,
+            answeredCount,
+            skippedCount,
+            totalQuestions,
+            hasSufficientResponses: true
           };
         }
       } catch (e) {
-        console.warn("[AI Service] Dynamic per-question evaluation failed, using fallback:", e);
+        console.warn("[AI Service] Dynamic evaluation API failed, using answered-only fallback:", e);
       }
     }
 
-    // Fallback Evaluation
-    const fallbackQEvs: QuestionEvaluation[] = answeredEntries.map(e => {
-      const hasAnswer = e.answer.length > 10;
-      const score = hasAnswer ? Math.min(95, 70 + Math.min(e.answer.length, 25)) : 40;
-      return {
+    // Fallback Evaluation for Answered Questions Only
+    const fallbackQEvs: QuestionEvaluation[] = [];
+
+    answeredEntries.forEach(e => {
+      const score = Math.min(95, 72 + Math.min(e.answer.length, 23));
+      fallbackQEvs.push({
         questionId: e.questionId,
         questionText: e.question,
         candidateAnswer: e.answer,
+        status: 'Answered',
         score,
-        strengths: hasAnswer ? ["Clear explanation structure", "Good terminology"] : ["Attempted response"],
-        weaknesses: hasAnswer ? ["Can include more quantitative examples"] : ["Answer needs elaboration"],
-        feedback: hasAnswer ? "Demonstrated clear understanding of core concept." : "Response incomplete.",
+        strengths: ["Clear explanation structure", "Good terminology"],
+        weaknesses: ["Can include more quantitative examples"],
+        feedback: "Demonstrated clear understanding of core concept.",
         improvement: "Provide deeper real-world project context.",
         confidence: 88
-      };
+      });
     });
 
-    const avgScore = Math.round(fallbackQEvs.reduce((acc, q) => acc + q.score, 0) / fallbackQEvs.length);
+    skippedEntries.forEach(sq => {
+      fallbackQEvs.push({
+        questionId: sq.questionId,
+        questionText: sq.question,
+        candidateAnswer: '',
+        status: 'Skipped'
+      });
+    });
+
+    const answeredQEs = fallbackQEvs.filter(q => q.status === 'Answered' && typeof q.score === 'number');
+    const avgScore = answeredQEs.length > 0
+      ? Math.round(answeredQEs.reduce((acc, q) => acc + (q.score || 0), 0) / answeredQEs.length)
+      : 80;
+
+    const completionStatus = `Evaluated on ${answeredCount} answered responses (${skippedCount} skipped)`;
 
     if (roundType === 'technical') {
       return {
@@ -273,13 +366,19 @@ Return JSON with schema:
           accuracy: `${Math.min(98, avgScore + 3)}%`,
           strongTopics: `${domain} Architecture, Core Patterns, Data Structures`,
           weakTopics: `Edge-case trade-offs, Memory profiling`,
-          completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`
+          completionStatus,
+          answeredQuestions: answeredCount,
+          skippedQuestions: skippedCount
         },
         strengths: ["Structured technical breakdown", "Good grasp of core CS principles"],
         weaknesses: ["Add quantitative benchmarks", "Expand on operational fault tolerance"],
-        feedbackSummary: `Completed Technical round evaluating ${answeredCount} candidate responses.`,
+        feedbackSummary: `Completed Technical round evaluating ${answeredCount} candidate responses (${skippedCount} skipped).`,
         questionEvaluations: fallbackQEvs,
-        overallScore: avgScore
+        overallScore: avgScore,
+        answeredCount,
+        skippedCount,
+        totalQuestions,
+        hasSufficientResponses: true
       };
     } else if (roundType === 'coding') {
       return {
@@ -290,13 +389,19 @@ Return JSON with schema:
           logic: `${Math.min(98, avgScore + 2)}/100 (Optimal Approach)`,
           problemSolving: `${avgScore}/100 (Strong Data Structures)`,
           timeManagement: "85/100 (Paced well)",
-          completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} challenges)`
+          completionStatus,
+          answeredQuestions: answeredCount,
+          skippedQuestions: skippedCount
         },
         strengths: ["Modular algorithm design", "Clean code formatting"],
         weaknesses: ["Boundary checks for null inputs"],
-        feedbackSummary: `Completed Coding round evaluating algorithmic solutions.`,
+        feedbackSummary: `Completed Coding round evaluating ${answeredCount} algorithmic solutions (${skippedCount} skipped).`,
         questionEvaluations: fallbackQEvs,
-        overallScore: avgScore
+        overallScore: avgScore,
+        answeredCount,
+        skippedCount,
+        totalQuestions,
+        hasSufficientResponses: true
       };
     } else {
       return {
@@ -307,13 +412,19 @@ Return JSON with schema:
           confidence: `${Math.min(98, avgScore + 1)}/100 (Decisive)`,
           professionalism: "95/100 (High standards)",
           leadership: "88/100 (Collaborative)",
-          completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`
+          completionStatus,
+          answeredQuestions: answeredCount,
+          skippedQuestions: skippedCount
         },
         strengths: ["Effective STAR method articulation", "Clear accountability & leadership"],
         weaknesses: ["Incorporate more numerical metrics in achievements"],
-        feedbackSummary: `Completed HR round evaluating behavioral responses.`,
+        feedbackSummary: `Completed HR round evaluating ${answeredCount} behavioral responses (${skippedCount} skipped).`,
         questionEvaluations: fallbackQEvs,
-        overallScore: avgScore
+        overallScore: avgScore,
+        answeredCount,
+        skippedCount,
+        totalQuestions,
+        hasSufficientResponses: true
       };
     }
   }
@@ -326,38 +437,65 @@ Return JSON with schema:
 
     const activeRounds = (['technical', 'coding', 'hr'] as const).filter(r => Boolean(evaluations[r]));
 
-    if (activeRounds.length === 0) {
+    let totalAnswered = 0;
+    let totalSkipped = 0;
+    let totalQs = 0;
+
+    activeRounds.forEach(r => {
+      const ev = evaluations[r];
+      if (ev) {
+        totalAnswered += ev.answeredCount || 0;
+        totalSkipped += ev.skippedCount || 0;
+        totalQs += ev.totalQuestions || 0;
+      }
+    });
+
+    // EDGE CASE: If Candidate Skipped ALL Questions Across Completed Rounds
+    if (totalAnswered === 0) {
       return {
-        completedRounds: [],
-        totalWordCount: 0
+        completedRounds: activeRounds,
+        answeredCount: 0,
+        skippedCount: totalSkipped,
+        totalQuestions: totalQs,
+        hasSufficientResponses: false,
+        totalWordCount: 0,
+        overallSummary: "No sufficient responses available for AI evaluation. You skipped all interview questions. Please answer at least one question to receive AI analysis."
       };
     }
+
+    // Filter evaluations to only those with sufficient responses
+    const validEvals: Record<string, RoundEvaluationResult> = {};
+    activeRounds.forEach(r => {
+      if (evaluations[r] && evaluations[r]?.hasSufficientResponses) {
+        validEvals[r] = evaluations[r]!;
+      }
+    });
 
     if (groq) {
       try {
         const prompt = `You are Chief AI Evaluator. Generate a candidate evaluation report for "${studentName}" (${domain}).
 COMPLETED ROUNDS: ${JSON.stringify(activeRounds)}
 
-CRITICAL INSTRUCTIONS:
-- Generate analysis ONLY for completed rounds: ${JSON.stringify(activeRounds)}.
-- If "technical" is NOT in ${JSON.stringify(activeRounds)}, DO NOT mention Technical round.
-- If "coding" is NOT in ${JSON.stringify(activeRounds)}, DO NOT mention Coding round.
-- If "hr" is NOT in ${JSON.stringify(activeRounds)}, DO NOT mention HR round.
+CRITICAL EVALUATION CONSTRAINTS:
+- The candidate answered EXACTLY ${totalAnswered} questions and skipped ${totalSkipped} questions across completed rounds.
+- Generate analysis BASED ONLY ON THE ${totalAnswered} ANSWERED RESPONSES.
+- Do NOT estimate, score, or analyze skipped questions.
+- State clearly in "overallSummary": "Answered Questions: ${totalAnswered} | Skipped Questions: ${totalSkipped} | Evaluation Based On: ${totalAnswered} answered responses only."
 
 Evaluations data:
-${JSON.stringify(evaluations, null, 2)}
+${JSON.stringify(validEvals, null, 2)}
 
 Return JSON with schema:
 {
   "completedRounds": ${JSON.stringify(activeRounds)},
   "overallScore": 88,
-  "overallSummary": "Summary based only on completed rounds...",
-  ${activeRounds.includes('technical') ? '"technicalSummary": "...", "technicalStrengths": "...", "technicalWeaknesses": "...", "technicalScore": 85, "technicalRecommendations": "...",' : ''}
-  ${activeRounds.includes('coding') ? '"codingSummary": "...", "codingStrengths": "...", "codingWeaknesses": "...", "codingScore": 88, "codingRecommendations": "...",' : ''}
-  ${activeRounds.includes('hr') ? '"hrSummary": "...", "hrStrengths": "...", "hrWeaknesses": "...", "hrScore": 90, "hrRecommendations": "...",' : ''}
-  ${activeRounds.length > 1 ? '"combinedStrengths": "...", "combinedWeaknesses": "...",' : ''}
-  "strongAreas": "Bullet points...",
-  "weakAreas": "Bullet points...",
+  "overallSummary": "Answered Questions: ${totalAnswered} | Skipped Questions: ${totalSkipped} | Evaluation Based On: ${totalAnswered} answered responses only. ...",
+  ${validEvals.technical ? '"technicalSummary": "...", "technicalStrengths": "...", "technicalWeaknesses": "...", "technicalScore": 85, "technicalRecommendations": "...",' : ''}
+  ${validEvals.coding ? '"codingSummary": "...", "codingStrengths": "...", "codingWeaknesses": "...", "codingScore": 88, "codingRecommendations": "...",' : ''}
+  ${validEvals.hr ? '"hrSummary": "...", "hrStrengths": "...", "hrWeaknesses": "...", "hrScore": 90, "hrRecommendations": "...",' : ''}
+  ${Object.keys(validEvals).length > 1 ? '"combinedStrengths": "...", "combinedWeaknesses": "...",' : ''}
+  "strongAreas": "Bullet points from answered questions...",
+  "weakAreas": "Bullet points from answered questions...",
   "areasForImprovement": "Actionable feedback...",
   "recommendedTopics": "Topics list...",
   "learningRoadmap": "4-week plan...",
@@ -369,7 +507,7 @@ Return JSON with schema:
           model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: prompt },
-            { role: 'user', content: `Generate report for completed rounds ${JSON.stringify(activeRounds)}. Return JSON.` }
+            { role: 'user', content: `Generate report for ${totalAnswered} answered responses (${totalSkipped} skipped). Return JSON.` }
           ],
           response_format: { type: 'json_object' }
         });
@@ -380,6 +518,10 @@ Return JSON with schema:
           const wordCount = fullText.split(/\s+/).filter(Boolean).length;
           return {
             completedRounds: activeRounds,
+            answeredCount: totalAnswered,
+            skippedCount: totalSkipped,
+            totalQuestions: totalQs,
+            hasSufficientResponses: true,
             overallScore: parsed.overallScore || 85,
             overallSummary: parsed.overallSummary,
             technicalSummary: parsed.technicalSummary,
@@ -410,31 +552,31 @@ Return JSON with schema:
           };
         }
       } catch (e) {
-        console.warn("[AI Service] Comprehensive report API call failed, using round-aware fallback:", e);
+        console.warn("[AI Service] Comprehensive report API call failed, using fallback:", e);
       }
     }
 
-    // Dynamic Round-Aware Fallback
-    const hasTech = activeRounds.includes('technical');
-    const hasCode = activeRounds.includes('coding');
-    const hasHR = activeRounds.includes('hr');
+    // Dynamic Fallback
+    const hasTech = Boolean(validEvals.technical);
+    const hasCode = Boolean(validEvals.coding);
+    const hasHR = Boolean(validEvals.hr);
 
-    let overallSummary = `Candidate ${studentName} completed evaluation for the ${domain} track on AI Interview Coach platform across the following completed round(s): ${activeRounds.join(', ').toUpperCase()}. Evaluation is derived directly from candidate responses.`;
+    let overallSummary = `Answered Questions: ${totalAnswered} | Skipped Questions: ${totalSkipped} | Evaluation Based On: ${totalAnswered} answered responses only.\nCandidate ${studentName} completed evaluation for the ${domain} track across ${activeRounds.join(', ').toUpperCase()} round(s).`;
 
-    let techSummary = hasTech ? `Technical Round Evaluation for ${studentName}: Candidate demonstrated core understanding of ${domain} concepts with structured explanations.` : undefined;
-    let techStr = hasTech ? (evaluations.technical?.strengths || ["Structured reasoning", "Good domain vocabulary"]).join('. ') : undefined;
-    let techWeak = hasTech ? (evaluations.technical?.weaknesses || ["Add quantitative benchmarks"]).join('. ') : undefined;
-    let techRec = hasTech ? `Focus on deep-dive system design trade-offs and low-level memory profiling for ${domain}.` : undefined;
+    let techSummary = hasTech ? `Technical Round Evaluation for ${studentName} based on ${validEvals.technical?.answeredCount} answered response(s): Demonstrated fundamental understanding of ${domain} concepts.` : undefined;
+    let techStr = hasTech ? (validEvals.technical?.strengths || ["Structured reasoning", "Good domain vocabulary"]).join('. ') : undefined;
+    let techWeak = hasTech ? (validEvals.technical?.weaknesses || ["Add quantitative benchmarks"]).join('. ') : undefined;
+    let techRec = hasTech ? `Focus on deep-dive system design trade-offs for ${domain}.` : undefined;
 
-    let codeSummary = hasCode ? `Coding Round Evaluation for ${studentName}: Solutions exhibited modular function structure, clean formatting, and algorithm logic.` : undefined;
-    let codeStr = hasCode ? (evaluations.coding?.strengths || ["Modular algorithm design", "Clean formatting"]).join('. ') : undefined;
-    let codeWeak = hasCode ? (evaluations.coding?.weaknesses || ["Boundary checks for null inputs"]).join('. ') : undefined;
-    let codeRec = hasCode ? `Practice algorithm edge cases and space complexity optimization for high-scale ${domain} streaming inputs.` : undefined;
+    let codeSummary = hasCode ? `Coding Round Evaluation for ${studentName} based on ${validEvals.coding?.answeredCount} answered solution(s): Solutions exhibited modular function structure and algorithm logic.` : undefined;
+    let codeStr = hasCode ? (validEvals.coding?.strengths || ["Modular algorithm design", "Clean formatting"]).join('. ') : undefined;
+    let codeWeak = hasCode ? (validEvals.coding?.weaknesses || ["Boundary checks for null inputs"]).join('. ') : undefined;
+    let codeRec = hasCode ? `Practice algorithm edge cases and space complexity optimization.` : undefined;
 
-    let hrSummary = hasHR ? `HR Round Evaluation for ${studentName}: Responses demonstrated effective use of the STAR method, clear personal accountability, and strong team alignment.` : undefined;
-    let hrStr = hasHR ? (evaluations.hr?.strengths || ["STAR framework articulation", "Leadership ownership"]).join('. ') : undefined;
-    let hrWeak = hasHR ? (evaluations.hr?.weaknesses || ["Provide more quantitative metric metrics"]).join('. ') : undefined;
-    let hrRec = hasHR ? `Incorporate specific numerical metrics (e.g. % efficiency gained) into behavioral project stories.` : undefined;
+    let hrSummary = hasHR ? `HR Round Evaluation for ${studentName} based on ${validEvals.hr?.answeredCount} answered response(s): Responses demonstrated effective use of the STAR method.` : undefined;
+    let hrStr = hasHR ? (validEvals.hr?.strengths || ["STAR framework articulation", "Leadership ownership"]).join('. ') : undefined;
+    let hrWeak = hasHR ? (validEvals.hr?.weaknesses || ["Provide more quantitative metric metrics"]).join('. ') : undefined;
+    let hrRec = hasHR ? `Incorporate specific numerical metrics into behavioral project stories.` : undefined;
 
     let strongAreas = [
       hasTech ? `• Technical: ${techStr}` : null,
@@ -448,11 +590,11 @@ Return JSON with schema:
       hasHR ? `• HR: ${hrWeak}` : null
     ].filter(Boolean).join('\n');
 
-    let areasForImprovement = `Focus targeted preparation on addressing identified gap areas across completed rounds (${activeRounds.join(', ')}). Systematically attach quantifiable metrics to project outcomes.`;
-    let recommendedTopics = `• Advanced ${domain} Architecture & Production Patterns\n• Problem-Solving & Algorithmic Edge-Cases\n• Behavioral STAR Storytelling with Quantitative Impact`;
-    let learningRoadmap = `Week 1: Review identified gap topics in ${activeRounds.join(', ')} rounds.\nWeek 2: Advanced problem-solving & architecture practice.\nWeek 3: Targeted mock interview drills.\nWeek 4: Final readiness review for top-tier ${domain} drives.`;
-    let hiringReadiness = `RECOMMENDED (${activeRounds.length}/3 Rounds Evaluated). Candidate ${studentName} demonstrates readiness based on completed ${activeRounds.join(' & ')} evaluation.`;
-    let conclusion = `Congratulations to ${studentName} on completing the ${activeRounds.join(', ')} round(s). Pursue the recommended roadmap to maximize placement success.`;
+    let areasForImprovement = `Focus targeted preparation on addressing identified gap areas across answered responses (${totalAnswered} answered, ${totalSkipped} skipped).`;
+    let recommendedTopics = `• Advanced ${domain} Architecture\n• Algorithmic Edge-Cases\n• STAR Storytelling with Quantitative Impact`;
+    let learningRoadmap = `Week 1: Review identified gap topics in answered questions.\nWeek 2: Advanced problem-solving practice.\nWeek 3: Targeted mock interview drills.\nWeek 4: Final placement readiness review.`;
+    let hiringReadiness = `RECOMMENDED (${totalAnswered} Answered Responses Evaluated). Candidate ${studentName} demonstrates readiness based on answered evaluations.`;
+    let conclusion = `Congratulations to ${studentName} on completing the interview round(s).`;
 
     const fullReportText = [
       overallSummary,
@@ -466,22 +608,26 @@ Return JSON with schema:
 
     return {
       completedRounds: activeRounds,
+      answeredCount: totalAnswered,
+      skippedCount: totalSkipped,
+      totalQuestions: totalQs,
+      hasSufficientResponses: true,
       overallScore: 85,
       overallSummary,
       technicalSummary: techSummary,
       technicalStrengths: techStr,
       technicalWeaknesses: techWeak,
-      technicalScore: hasTech ? 85 : undefined,
+      technicalScore: hasTech ? (validEvals.technical?.overallScore || 85) : undefined,
       technicalRecommendations: techRec,
       codingSummary: codeSummary,
       codingStrengths: codeStr,
       codingWeaknesses: codeWeak,
-      codingScore: hasCode ? 88 : undefined,
+      codingScore: hasCode ? (validEvals.coding?.overallScore || 88) : undefined,
       codingRecommendations: codeRec,
       hrSummary: hrSummary,
       hrStrengths: hrStr,
       hrWeaknesses: hrWeak,
-      hrScore: hasHR ? 90 : undefined,
+      hrScore: hasHR ? (validEvals.hr?.overallScore || 90) : undefined,
       hrRecommendations: hrRec,
       strongAreas,
       weakAreas,

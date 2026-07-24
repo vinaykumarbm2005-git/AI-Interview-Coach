@@ -55,6 +55,8 @@ export interface TechnicalMetrics {
   strongTopics: string;
   weakTopics: string;
   completionStatus: string;
+  answeredQuestions?: number;
+  skippedQuestions?: number;
 }
 
 export interface CodingMetrics {
@@ -63,6 +65,8 @@ export interface CodingMetrics {
   problemSolving: string;
   timeManagement: string;
   completionStatus: string;
+  answeredQuestions?: number;
+  skippedQuestions?: number;
 }
 
 export interface HRMetrics {
@@ -71,18 +75,21 @@ export interface HRMetrics {
   professionalism: string;
   leadership: string;
   completionStatus: string;
+  answeredQuestions?: number;
+  skippedQuestions?: number;
 }
 
 export interface QuestionEvaluation {
   questionId: number;
   questionText: string;
   candidateAnswer: string;
-  score: number;
-  strengths: string[];
-  weaknesses: string[];
-  feedback: string;
-  improvement: string;
-  confidence: number;
+  status: 'Answered' | 'Skipped' | 'Not Visited';
+  score?: number;
+  strengths?: string[];
+  weaknesses?: string[];
+  feedback?: string;
+  improvement?: string;
+  confidence?: number;
 }
 
 export interface RoundEvaluation {
@@ -93,7 +100,11 @@ export interface RoundEvaluation {
   weaknesses: string[];
   feedbackSummary: string;
   questionEvaluations?: QuestionEvaluation[];
-  overallScore?: number;
+  overallScore?: number | null;
+  answeredCount: number;
+  skippedCount: number;
+  totalQuestions: number;
+  hasSufficientResponses: boolean;
 }
 
 export interface ReportSection {
@@ -106,6 +117,10 @@ export interface ReportSection {
 
 export interface AIReportData {
   completedRounds: RoundType[];
+  answeredCount: number;
+  skippedCount: number;
+  totalQuestions: number;
+  hasSufficientResponses: boolean;
   overallScore?: number;
   overallSummary?: string;
   technicalSummary?: string;

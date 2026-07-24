@@ -3,7 +3,7 @@ import { Navbar } from '../components/common/Navbar';
 import { StudentProfileCard } from '../components/dashboard/StudentProfileCard';
 import { DomainSelector } from '../components/dashboard/DomainSelector';
 import { RoundCard } from '../components/dashboard/RoundCard';
-import { IndividualAnalyticsCard } from '../components/dashboard/IndividualAnalyticsCard';
+import { AnalyticsSummarySection } from '../components/dashboard/AnalyticsSummarySection';
 import { AIReportPanel } from '../components/dashboard/AIReportPanel';
 import { RoundType } from '../types';
 
@@ -28,13 +28,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onStartRound, onLo
             <StudentProfileCard />
           </div>
 
-          {/* MIDDLE COLUMN: Domain Selector + 3 Round Cards + 3 Analytics Cards (53%) */}
+          {/* MIDDLE COLUMN: Domain Selector + 3 Round Start Cards + Analytics Summary Section (53%) */}
           <div className="w-full lg:w-[53%] flex flex-col space-y-5 flex-1 min-w-0">
             
             {/* Domain Selection Dropdown */}
             <DomainSelector />
 
-            {/* 3 Round Cards side-by-side (Question Count removed) */}
+            {/* 3 Round Start Cards side-by-side */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <RoundCard
                 roundType="technical"
@@ -58,22 +58,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onStartRound, onLo
               />
             </div>
 
-            {/* 3 Unique Individual Analytics Dashboards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
-              <IndividualAnalyticsCard
-                roundType="technical"
-                title="Technical"
-              />
-
-              <IndividualAnalyticsCard
-                roundType="coding"
-                title="Coding"
-              />
-
-              <IndividualAnalyticsCard
-                roundType="hr"
-                title="HR"
-              />
+            {/* ANALYTICS SUMMARY SECTION (Top Row: 3 Total Score Cards | Bottom Row: Confidence Meter, Accuracy, Overall %) */}
+            <div className="flex-1">
+              <AnalyticsSummarySection />
             </div>
           </div>
 
