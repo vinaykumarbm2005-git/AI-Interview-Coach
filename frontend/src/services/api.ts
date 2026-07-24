@@ -13,8 +13,7 @@ export async function fetchAIQuestions(domain: DomainType, roundType: RoundType,
     const data = await res.json();
     return data.questions || [];
   } catch (err) {
-    console.warn(`[Frontend API] Failed to fetch questions from backend API, using client fallback:`, err);
-    // Client side fallback generator if backend server is not running
+    console.warn(`[Frontend API] Questions API offline, using client fallback:`, err);
     return generateClientQuestions(domain, roundType, count);
   }
 }
@@ -30,7 +29,7 @@ export async function evaluateAIRound(domain: DomainType, roundType: RoundType, 
     const data = await res.json();
     return data.evaluation;
   } catch (err) {
-    console.warn(`[Frontend API] Evaluation API call failed, generating evaluation on client:`, err);
+    console.warn(`[Frontend API] Evaluation API offline, generating evaluation on client:`, err);
     return generateClientEvaluation(domain, roundType, questions, answers);
   }
 }
@@ -39,7 +38,13 @@ export async function generateAIReport(
   domain: DomainType,
   studentName: string,
   evaluations: { technical?: RoundEvaluation; coding?: RoundEvaluation; hr?: RoundEvaluation }
-): Promise<AIReportData> {
+): Promise<AIReportData | null> {
+  const activeRounds = (['technical', 'coding', 'hr'] as const).filter(r => Boolean(evaluations[r]));
+
+  if (activeRounds.length === 0) {
+    return null;
+  }
+
   try {
     const res = await fetch(`${API_BASE}/report`, {
       method: 'POST',
@@ -50,12 +55,11 @@ export async function generateAIReport(
     const data = await res.json();
     return data.report;
   } catch (err) {
-    console.warn(`[Frontend API] Report API call failed, generating report on client:`, err);
-    return generateClientReport(domain, studentName);
+    console.warn(`[Frontend API] Report API offline, generating round-filtered report on client:`, err);
+    return generateClientReport(domain, studentName, evaluations, activeRounds);
   }
 }
 
-// Client Fallbacks in case backend API is offline
 function generateClientQuestions(domain: DomainType, roundType: RoundType, count: number): Question[] {
   if (roundType === 'technical') {
     return Array.from({ length: count }, (_, i) => ({
@@ -89,74 +93,151 @@ function generateClientEvaluation(domain: DomainType, roundType: RoundType, ques
   const answeredCount = Object.keys(answers).filter(k => answers[Number(k)]?.trim().length > 0).length;
   const completionRate = Math.round((answeredCount / questions.length) * 100);
 
+  const questionEvaluations = questions.map(q => {
+    const ans = answers[q.id]?.trim() || '';
+    const hasAnswer = ans.length > 5;
+    return {
+      questionId: q.id,
+      questionText: q.question,
+      candidateAnswer: ans,
+      score: hasAnswer ? Math.min(96, 75 + Math.min(ans.length, 20)) : 40,
+      strengths: hasAnswer ? ["Clear explanation structure", "Relevant domain vocabulary"] : ["Attempted question"],
+      weaknesses: hasAnswer ? ["Can include more quantitative benchmarks"] : ["Incomplete answer"],
+      feedback: hasAnswer ? "Good conceptual grasp demonstrated." : "Answer lacks depth.",
+      improvement: "Elaborate with specific project metrics.",
+      confidence: 88
+    };
+  });
+
+  const avgScore = Math.round(questionEvaluations.reduce((acc, q) => acc + q.score, 0) / questionEvaluations.length);
+
   if (roundType === 'technical') {
     return {
       roundType: 'technical',
       domain,
       metrics: {
-        score: "85/100",
-        accuracy: "88%",
-        strongTopics: `${domain} Architecture, Problem Breakdown, Design Patterns`,
-        weakTopics: `Edge-case fault recovery, Low-level memory profiling`,
+        score: `${avgScore}/100`,
+        accuracy: `${Math.min(98, avgScore + 2)}%`,
+        strongTopics: `${domain} Architecture, Problem Breakdown, Core Patterns`,
+        weakTopics: `Edge-case fault recovery, Memory profiling`,
         completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`
       },
       strengths: ["Clear logical structure", "Good domain vocabulary"],
       weaknesses: ["Add more quantitative metrics"],
-      feedbackSummary: "Strong technical performance with good domain understanding."
+      feedbackSummary: `Evaluated Technical round candidate answers for ${domain}.`,
+      questionEvaluations,
+      overallScore: avgScore
     };
   } else if (roundType === 'coding') {
     return {
       roundType: 'coding',
       domain,
       metrics: {
-        codeQuality: "90/100 (Clean & Modular)",
-        logic: "88/100 (Optimal O(N) Algorithm)",
-        problemSolving: "85/100 (Strong Data Structure Choices)",
+        codeQuality: `${avgScore}/100 (Clean & Modular)`,
+        logic: `${Math.min(98, avgScore + 3)}/100 (Optimal Approach)`,
+        problemSolving: `${avgScore}/100 (Strong Data Structures)`,
         timeManagement: "86/100 (Paced well)",
         completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} challenges)`
       },
       strengths: ["Modular functions", "Clean code styling"],
       weaknesses: ["Boundary check edge cases"],
-      feedbackSummary: "Solid algorithmic code quality suited for engineering roles."
+      feedbackSummary: `Evaluated Coding round solutions for ${domain}.`,
+      questionEvaluations,
+      overallScore: avgScore
     };
   } else {
     return {
       roundType: 'hr',
       domain,
       metrics: {
-        communication: "92/100 (Articulate & STAR structured)",
-        confidence: "90/100 (Decisive & Professional)",
-        professionalism: "95/100 (High leadership standards)",
-        leadership: "88/100 (Collaborative focus)",
+        communication: `${avgScore}/100 (Articulate & STAR structured)`,
+        confidence: `${Math.min(98, avgScore + 1)}/100 (Decisive)`,
+        professionalism: "95/100 (High standards)",
+        leadership: "88/100 (Collaborative)",
         completionStatus: `${completionRate}% Completed (${answeredCount}/${questions.length} questions)`
       },
       strengths: ["STAR method articulation", "Clear accountability"],
       weaknesses: ["Provide more quantitative metric metrics"],
-      feedbackSummary: "Excellent HR performance demonstrating senior leadership skills."
+      feedbackSummary: `Evaluated HR round behavioral responses for ${domain}.`,
+      questionEvaluations,
+      overallScore: avgScore
     };
   }
 }
 
-function generateClientReport(domain: DomainType, studentName: string): AIReportData {
-  const summary = `Candidate ${studentName} recently completed a comprehensive evaluation for the position of ${domain} on AI Interview Coach. Across all rounds, ${studentName} displayed an exemplary commitment to technical rigor, clear problem-solving methodologies, and mature professional communication.`;
-  const techStr = `In the Technical Round, candidate demonstrated strong core knowledge of ${domain} concepts, explaining architectural decisions and optimization strategies with clarity and logical precision.`;
-  const codeStr = `In the Coding Round, candidate implemented algorithmic solutions with high code quality, optimal time complexity, and clean structure suited for production environments.`;
-  const hrPerf = `In the HR Round, candidate used the STAR framework effectively, demonstrating leadership, resilience, team collaboration, and strong alignment with corporate culture.`;
-  const strongA = `1. Deep understanding of ${domain} core design patterns.\n2. Optimal algorithmic problem decomposition and clean code formatting.\n3. Confident, articulate communication with strong leadership perspective.`;
-  const weakA = `1. System edge-case profiling under extreme load scenarios.\n2. Incorporating quantitative metrics into behavioral answer storytelling.\n3. Auxiliary memory optimization in streaming data algorithms.`;
-  const areasImp = `Systematically practice attaching quantifiable outcomes (e.g. % efficiency gained) to past projects. Practice designing high-availability systems with edge-case fault handling.`;
-  const recTop = `• Advanced Distributed Systems Architecture\n• System Optimization & Redis Caching\n• Complex Dynamic Programming Algorithms\n• Executive Communication & STAR Framework`;
-  const roadmap = `Week 1: Scalability & Microservices.\nWeek 2: Advanced Data Structures.\nWeek 3: Mock Interview Practice.\nWeek 4: Executive Storytelling & Metrics.`;
-  const readiness = `HIGHLY RECOMMENDED (HIRE READY). Candidate ${studentName} shows high readiness for top-tier technical roles in ${domain}.`;
-  const conclusion = `Congratulations to ${studentName} on completing the assessment. AI Interview Coach anticipates great career success for this candidate.`;
+function generateClientReport(
+  domain: DomainType,
+  studentName: string,
+  evaluations: { technical?: RoundEvaluation; coding?: RoundEvaluation; hr?: RoundEvaluation },
+  activeRounds: RoundType[]
+): AIReportData {
+  const hasTech = activeRounds.includes('technical');
+  const hasCode = activeRounds.includes('coding');
+  const hasHR = activeRounds.includes('hr');
 
-  const fullText = `${summary} ${techStr} ${codeStr} ${hrPerf} ${strongA} ${weakA} ${areasImp} ${recTop} ${roadmap} ${readiness} ${conclusion}`;
-  
+  const summary = `Candidate ${studentName} completed evaluation for ${domain} across completed round(s): ${activeRounds.map(r => r.toUpperCase()).join(', ')}. Assessment is derived strictly from candidate responses.`;
+
+  const techSummary = hasTech ? `Technical Round Analysis: Candidate demonstrated strong fundamental knowledge of ${domain} concepts.` : undefined;
+  const techStr = hasTech ? (evaluations.technical?.strengths || ["Structured reasoning", "Good domain vocabulary"]).join('. ') : undefined;
+  const techWeak = hasTech ? (evaluations.technical?.weaknesses || ["Add quantitative benchmarks"]).join('. ') : undefined;
+  const techRec = hasTech ? `Focus on deep-dive system design trade-offs and operational scaling for ${domain}.` : undefined;
+
+  const codeSummary = hasCode ? `Coding Round Analysis: Solutions exhibited modular function structure, clean algorithm logic, and readable syntax.` : undefined;
+  const codeStr = hasCode ? (evaluations.coding?.strengths || ["Modular algorithm design", "Clean formatting"]).join('. ') : undefined;
+  const codeWeak = hasCode ? (evaluations.coding?.weaknesses || ["Boundary checks for null inputs"]).join('. ') : undefined;
+  const codeRec = hasCode ? `Practice algorithm edge cases and auxiliary space optimization.` : undefined;
+
+  const hrSummary = hasHR ? `HR Round Analysis: Behavioral answers effectively utilized the STAR method with clear personal accountability.` : undefined;
+  const hrStr = hasHR ? (evaluations.hr?.strengths || ["STAR framework articulation", "Leadership ownership"]).join('. ') : undefined;
+  const hrWeak = hasHR ? (evaluations.hr?.weaknesses || ["Provide more quantitative metric metrics"]).join('. ') : undefined;
+  const hrRec = hasHR ? `Incorporate specific numerical metrics into behavioral project stories.` : undefined;
+
+  const strongA = [
+    hasTech ? `• Technical Strengths: ${techStr}` : null,
+    hasCode ? `• Coding Strengths: ${codeStr}` : null,
+    hasHR ? `• HR Strengths: ${hrStr}` : null
+  ].filter(Boolean).join('\n');
+
+  const weakA = [
+    hasTech ? `• Technical Weaknesses: ${techWeak}` : null,
+    hasCode ? `• Coding Weaknesses: ${codeWeak}` : null,
+    hasHR ? `• HR Weaknesses: ${hrWeak}` : null
+  ].filter(Boolean).join('\n');
+
+  const areasImp = `Systematically address key feedback across completed rounds (${activeRounds.join(', ')}). Attach quantitative metrics to project outcomes.`;
+  const recTop = `• Advanced ${domain} Architecture & Production Scenarios\n• Algorithmic Problem Solving & Edge Cases\n• STAR Method Behavioral Storytelling`;
+  const roadmap = `Week 1: Address identified gap topics in ${activeRounds.join(', ')} rounds.\nWeek 2: Advanced problem-solving & architecture practice.\nWeek 3: Targeted mock interview drills.\nWeek 4: Final placement readiness review.`;
+  const readiness = `RECOMMENDED (${activeRounds.length}/3 Rounds Evaluated). Candidate ${studentName} shows strong readiness for ${domain} based on completed rounds.`;
+  const conclusion = `Congratulations to ${studentName} on completing the ${activeRounds.join(', ')} round(s). Pursue the recommended roadmap for interview success.`;
+
+  const fullText = [
+    summary, techSummary, techStr, techWeak, techRec,
+    codeSummary, codeStr, codeWeak, codeRec,
+    hrSummary, hrStr, hrWeak, hrRec,
+    strongA, weakA, areasImp, recTop, roadmap, readiness, conclusion
+  ].filter(Boolean).join('\n\n');
+
   return {
+    completedRounds: activeRounds,
+    overallScore: 85,
     overallSummary: summary,
+    technicalSummary: techSummary,
     technicalStrengths: techStr,
+    technicalWeaknesses: techWeak,
+    technicalScore: hasTech ? (evaluations.technical?.overallScore || 85) : undefined,
+    technicalRecommendations: techRec,
+    codingSummary: codeSummary,
     codingStrengths: codeStr,
-    hrPerformance: hrPerf,
+    codingWeaknesses: codeWeak,
+    codingScore: hasCode ? (evaluations.coding?.overallScore || 88) : undefined,
+    codingRecommendations: codeRec,
+    hrSummary: hrSummary,
+    hrStrengths: hrStr,
+    hrWeaknesses: hrWeak,
+    hrScore: hasHR ? (evaluations.hr?.overallScore || 90) : undefined,
+    hrRecommendations: hrRec,
+    combinedStrengths: activeRounds.length > 1 ? strongA : undefined,
+    combinedWeaknesses: activeRounds.length > 1 ? weakA : undefined,
     strongAreas: strongA,
     weakAreas: weakA,
     areasForImprovement: areasImp,

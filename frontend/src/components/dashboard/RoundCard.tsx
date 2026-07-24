@@ -1,12 +1,11 @@
 import React from 'react';
 import { RoundType } from '../../types';
-import { Code, Cpu, Users, Clock, HelpCircle, Play, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
+import { Code, Cpu, Users, Clock, Play, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
 import { useInterview } from '../../context/InterviewContext';
 
 interface RoundCardProps {
   roundType: RoundType;
   title: string;
-  questionCount: number;
   timeLimitMinutes: number;
   onStart: () => void;
 }
@@ -14,7 +13,6 @@ interface RoundCardProps {
 export const RoundCard: React.FC<RoundCardProps> = ({
   roundType,
   title,
-  questionCount,
   timeLimitMinutes,
   onStart
 }) => {
@@ -80,16 +78,11 @@ export const RoundCard: React.FC<RoundCardProps> = ({
 
         <h4 className="text-lg font-bold text-slate-900 tracking-tight">{title}</h4>
 
-        {/* Round Details */}
+        {/* Duration Only - No Question Count */}
         <div className="space-y-2 mt-3 mb-5">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-            <HelpCircle className="w-4 h-4 text-emerald-600" />
-            <span><strong className="text-slate-800 font-bold">{questionCount}</strong> Questions</span>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-            <Clock className="w-4 h-4 text-emerald-600" />
-            <span><strong className="text-slate-800 font-bold">{timeLimitMinutes}</strong> Minutes</span>
+            <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Est. Duration: <strong className="text-slate-800 font-bold">{timeLimitMinutes} mins</strong></span>
           </div>
         </div>
       </div>

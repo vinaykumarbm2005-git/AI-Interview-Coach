@@ -34,12 +34,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onStartRound, onLo
             {/* Domain Selection Dropdown */}
             <DomainSelector />
 
-            {/* 3 Round Cards side-by-side */}
+            {/* 3 Round Cards side-by-side (Question Count removed) */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <RoundCard
                 roundType="technical"
                 title="Technical Round"
-                questionCount={15}
                 timeLimitMinutes={30}
                 onStart={() => onStartRound('technical')}
               />
@@ -47,7 +46,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onStartRound, onLo
               <RoundCard
                 roundType="coding"
                 title="Coding Round"
-                questionCount={7}
                 timeLimitMinutes={25}
                 onStart={() => onStartRound('coding')}
               />
@@ -55,13 +53,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onStartRound, onLo
               <RoundCard
                 roundType="hr"
                 title="HR Round"
-                questionCount={10}
                 timeLimitMinutes={30}
                 onStart={() => onStartRound('hr')}
               />
             </div>
 
-            {/* Individual Analytics Dashboards side-by-side in one row */}
+            {/* 3 Unique Individual Analytics Dashboards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
               <IndividualAnalyticsCard
                 roundType="technical"

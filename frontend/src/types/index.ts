@@ -1,11 +1,23 @@
 export interface StudentProfile {
-  username: string;
+  id?: string;
+  user_id?: string;
+  username?: string;
   name: string;
-  email?: string;
+  email: string;
   usn: string;
+  phone?: string;
+  college?: string;
   branch: string;
+  department?: string;
   semester: string;
+  cgpa?: string;
+  skills?: string;
+  linkedinUrl?: string;
+  githubUrl?: string;
+  portfolioUrl?: string;
   avatarUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type DomainType = 
@@ -61,6 +73,18 @@ export interface HRMetrics {
   completionStatus: string;
 }
 
+export interface QuestionEvaluation {
+  questionId: number;
+  questionText: string;
+  candidateAnswer: string;
+  score: number;
+  strengths: string[];
+  weaknesses: string[];
+  feedback: string;
+  improvement: string;
+  confidence: number;
+}
+
 export interface RoundEvaluation {
   roundType: RoundType;
   domain: string;
@@ -68,19 +92,46 @@ export interface RoundEvaluation {
   strengths: string[];
   weaknesses: string[];
   feedbackSummary: string;
+  questionEvaluations?: QuestionEvaluation[];
+  overallScore?: number;
+}
+
+export interface ReportSection {
+  id: string;
+  title: string;
+  icon?: string;
+  content: string;
+  items?: string[];
 }
 
 export interface AIReportData {
-  overallSummary: string;
-  technicalStrengths: string;
-  codingStrengths: string;
-  hrPerformance: string;
-  strongAreas: string;
-  weakAreas: string;
-  areasForImprovement: string;
-  recommendedTopics: string;
-  learningRoadmap: string;
-  hiringReadiness: string;
-  conclusion: string;
+  completedRounds: RoundType[];
+  overallScore?: number;
+  overallSummary?: string;
+  technicalSummary?: string;
+  technicalStrengths?: string;
+  technicalWeaknesses?: string;
+  technicalScore?: number;
+  technicalRecommendations?: string;
+  codingSummary?: string;
+  codingStrengths?: string;
+  codingWeaknesses?: string;
+  codingScore?: number;
+  codingRecommendations?: string;
+  hrSummary?: string;
+  hrStrengths?: string;
+  hrWeaknesses?: string;
+  hrScore?: number;
+  hrRecommendations?: string;
+  combinedStrengths?: string;
+  combinedWeaknesses?: string;
+  strongAreas?: string;
+  weakAreas?: string;
+  areasForImprovement?: string;
+  recommendedTopics?: string;
+  learningRoadmap?: string;
+  hiringReadiness?: string;
+  conclusion?: string;
   totalWordCount: number;
+  sections?: ReportSection[];
 }

@@ -2,6 +2,9 @@ import { jsPDF } from 'jspdf';
 import { AIReportData, StudentProfile, DomainType } from '../types';
 
 export function downloadPDFReport(report: AIReportData, student: StudentProfile, domain: DomainType) {
+  const activeRounds = report.completedRounds || [];
+  if (activeRounds.length === 0) return;
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -13,18 +16,14 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   const margin = 15;
   let y = margin;
 
-  // Primary Colors (White + Professional Green Theme)
-  const primaryGreen = '#16a34a';
-  const darkGreen = '#14532d';
+  // Colors
   const textDark = '#1e293b';
-  const bgLight = '#f8fafc';
 
-  // Helper function to check page space and add new page if needed
+  // Helper for page overflow
   const checkNewPage = (neededSpace: number) => {
     if (y + neededSpace > pageHeight - margin) {
       doc.addPage();
       y = margin + 10;
-      // Header for secondary pages
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
       doc.text(`AI Interview Coach — Performance Report | Candidate: ${student.name}`, margin, 10);
@@ -34,34 +33,30 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   };
 
   // --- HEADER SECTION ---
-  // Top Green Banner Accent
   doc.setFillColor(22, 163, 74); // #16a34a
   doc.rect(0, 0, pageWidth, 6, 'F');
-
   y += 6;
 
-  // Title & Logo
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
-  doc.setTextColor(20, 83, 45); // Dark green
+  doc.setTextColor(20, 83, 45);
   doc.text("AI INTERVIEW COACH", margin, y + 8);
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text("AI Interview Evaluation & Readiness Report", margin, y + 14);
+  doc.text("AI Evaluation & Performance Report", margin, y + 14);
 
-  // Date & Report Ref
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   doc.setFontSize(9);
   doc.text(`Date: ${dateStr}`, pageWidth - margin - 40, y + 8);
-  doc.text(`Status: Evaluated by AI`, pageWidth - margin - 40, y + 14);
+  doc.text(`Completed Rounds: ${activeRounds.map(r => r.toUpperCase()).join(', ')}`, pageWidth - margin - 40, y + 14);
 
   y += 22;
 
-  // Candidate Info Card
-  doc.setFillColor(240, 253, 244); // #f0fdf4
-  doc.setDrawColor(187, 247, 208); // #bbf7d0
+  // Candidate Info Box
+  doc.setFillColor(240, 253, 244);
+  doc.setDrawColor(187, 247, 208);
   doc.roundedRect(margin, y, pageWidth - (margin * 2), 24, 3, 3, 'FD');
 
   doc.setFont('helvetica', 'bold');
@@ -73,18 +68,17 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   doc.setFontSize(9);
   doc.setTextColor(51, 65, 85);
   doc.text(`USN: ${student.usn}   |   Branch: ${student.branch}   |   Semester: ${student.semester}`, margin + 5, y + 13);
-  doc.text(`Target Domain: ${domain}   |   Word Count: ${report.totalWordCount} words`, margin + 5, y + 19);
+  doc.text(`Target Domain: ${domain}   |   Evaluated Rounds: ${activeRounds.join(', ')}`, margin + 5, y + 19);
 
   y += 30;
 
-  // Helper for rendering section
-  const renderSection = (title: string, content: string, icon = "•") => {
+  const renderSection = (title: string, content?: string, icon = "•") => {
+    if (!content || !content.trim()) return;
     checkNewPage(25);
 
-    // Section Header
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.setTextColor(22, 163, 74); // Green header
+    doc.setTextColor(22, 163, 74);
     doc.text(`${icon} ${title.toUpperCase()}`, margin, y);
     y += 2;
 
@@ -92,7 +86,6 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
     doc.line(margin, y, pageWidth - margin, y);
     y += 5;
 
-    // Content lines
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.setTextColor(30, 41, 59);
@@ -105,13 +98,36 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
     y += textHeight + 6;
   };
 
-  // Render all 11 required sections
+  // 1. Overall Summary
   renderSection("Overall Interview Summary", report.overallSummary, "📌");
-  renderSection("Technical Strengths", report.technicalStrengths, "⚡");
-  renderSection("Coding Strengths", report.codingStrengths, "💻");
-  renderSection("HR Performance", report.hrPerformance, "🤝");
-  renderSection("Strong Areas", report.strongAreas, "🎯");
-  renderSection("Weak Areas", report.weakAreas, "⚠️");
+
+  // 2. Technical Round Sections (ONLY if Technical was completed)
+  if (activeRounds.includes('technical')) {
+    renderSection("Technical Summary", report.technicalSummary, "⚡");
+    renderSection("Technical Strengths", report.technicalStrengths, "⚡");
+    renderSection("Technical Weaknesses", report.technicalWeaknesses, "⚡");
+    renderSection("Technical Recommendations", report.technicalRecommendations, "⚡");
+  }
+
+  // 3. Coding Round Sections (ONLY if Coding was completed)
+  if (activeRounds.includes('coding')) {
+    renderSection("Coding Summary", report.codingSummary, "💻");
+    renderSection("Coding Strengths", report.codingStrengths, "💻");
+    renderSection("Coding Weaknesses", report.codingWeaknesses, "💻");
+    renderSection("Coding Recommendations", report.codingRecommendations, "💻");
+  }
+
+  // 4. HR Round Sections (ONLY if HR was completed)
+  if (activeRounds.includes('hr')) {
+    renderSection("HR Summary", report.hrSummary, "🤝");
+    renderSection("HR Strengths", report.hrStrengths, "🤝");
+    renderSection("HR Weaknesses", report.hrWeaknesses, "🤝");
+    renderSection("HR Recommendations", report.hrRecommendations, "🤝");
+  }
+
+  // 5. General Strengths / Weaknesses / Roadmap
+  renderSection("Key Strengths", report.strongAreas, "🎯");
+  renderSection("Identified Weaknesses", report.weakAreas, "⚠️");
   renderSection("Areas for Improvement", report.areasForImprovement, "📈");
   renderSection("Recommended Topics", report.recommendedTopics, "📚");
   renderSection("Learning Roadmap", report.learningRoadmap, "🗺️");
@@ -124,7 +140,7 @@ export function downloadPDFReport(report: AIReportData, student: StudentProfile,
   doc.setTextColor(148, 163, 184);
   doc.text("AI Interview Coach Platform | Certified AI Evaluation", pageWidth / 2, pageHeight - 8, { align: 'center' });
 
-  // Save the PDF
+  // Save PDF
   const filename = `AI_Interview_Coach_Report_${student.name.replace(/\s+/g, '_')}_${domain.replace(/\s+/g, '_')}.pdf`;
   doc.save(filename);
 }
