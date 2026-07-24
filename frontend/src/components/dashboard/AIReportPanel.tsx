@@ -1,0 +1,171 @@
+import React from 'react';
+import { useInterview } from '../../context/InterviewContext';
+import { downloadPDFReport } from '../../services/pdfService';
+import { FileText, Download, Sparkles, Award, CheckCircle2, BookOpen, AlertCircle, RefreshCw } from 'lucide-react';
+
+export const AIReportPanel: React.FC = () => {
+  const { aiReport, isEvaluating, student, selectedDomain } = useInterview();
+
+  const handleDownload = () => {
+    if (!aiReport) return;
+    downloadPDFReport(aiReport, student, selectedDomain);
+  };
+
+  return (
+    <div className="bg-white border border-slate-200/80 shadow-soft rounded-2xl p-5 flex flex-col h-full relative overflow-hidden">
+      {/* Top Banner Header - Fixed at Top */}
+      <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-4 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shadow-sm shrink-0">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900 tracking-tight">AI Feedback Report</h3>
+            <p className="text-xs text-slate-500 font-medium">Real-time LLM Evaluation ({selectedDomain})</p>
+          </div>
+        </div>
+
+        {/* Download Report Button */}
+        <button
+          onClick={handleDownload}
+          disabled={!aiReport || isEvaluating}
+          className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-xl shadow-sm transition-all hover:scale-[1.02] cursor-pointer shrink-0"
+        >
+          <Download className="w-4 h-4" />
+          <span>Download Report</span>
+        </button>
+      </div>
+
+      {/* Loading state */}
+      {isEvaluating && (
+        <div className="py-16 text-center space-y-3 flex-1 flex flex-col justify-center items-center">
+          <div className="w-10 h-10 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-semibold text-emerald-800">Evaluating responses with AI...</p>
+          <p className="text-[11px] text-slate-400">Synthesizing multi-round analytics & learning roadmap</p>
+        </div>
+      )}
+
+      {/* Report Content Scroll Area */}
+      {!isEvaluating && aiReport ? (
+        <div className="flex-1 overflow-y-auto pr-2 space-y-5 text-xs text-slate-700 leading-relaxed min-h-0">
+          
+          {/* Certification Badge */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+            <div className="flex items-center gap-2">
+              <Award className="w-5 h-5 text-emerald-700" />
+              <div>
+                <span className="font-bold text-emerald-900 text-xs block">AI Evaluation Certified</span>
+                <span className="text-[10px] text-emerald-700 font-medium">Comprehensive report • {aiReport.totalWordCount} words</span>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+              Verified
+            </span>
+          </div>
+
+          {/* Section 1: Overall Interview Summary */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>📌</span> Overall Interview Summary
+            </h4>
+            <p className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800">{aiReport.overallSummary}</p>
+          </div>
+
+          {/* Section 2: Technical Strengths */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>⚡</span> Technical Strengths
+            </h4>
+            <p className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800">{aiReport.technicalStrengths}</p>
+          </div>
+
+          {/* Section 3: Coding Strengths */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>💻</span> Coding Strengths
+            </h4>
+            <p className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800">{aiReport.codingStrengths}</p>
+          </div>
+
+          {/* Section 4: HR Performance */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>🤝</span> HR Performance
+            </h4>
+            <p className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800">{aiReport.hrPerformance}</p>
+          </div>
+
+          {/* Section 5 & 6: Strong & Weak Areas Side-by-Side */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-emerald-50/50 border border-emerald-100">
+              <h5 className="font-bold text-emerald-800 mb-1 flex items-center gap-1">
+                <span>🎯</span> Strong Areas
+              </h5>
+              <div className="whitespace-pre-line text-slate-700">{aiReport.strongAreas}</div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-100">
+              <h5 className="font-bold text-amber-900 mb-1 flex items-center gap-1">
+                <span>⚠️</span> Weak Areas
+              </h5>
+              <div className="whitespace-pre-line text-slate-700">{aiReport.weakAreas}</div>
+            </div>
+          </div>
+
+          {/* Section 7: Areas for Improvement */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>📈</span> Areas for Improvement
+            </h4>
+            <p className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800">{aiReport.areasForImprovement}</p>
+          </div>
+
+          {/* Section 8: Recommended Topics */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>📚</span> Recommended Topics
+            </h4>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800 whitespace-pre-line">
+              {aiReport.recommendedTopics}
+            </div>
+          </div>
+
+          {/* Section 9: Learning Roadmap */}
+          <div className="space-y-1.5">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>🗺️</span> Learning Roadmap
+            </h4>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800 whitespace-pre-line">
+              {aiReport.learningRoadmap}
+            </div>
+          </div>
+
+          {/* Section 10: Hiring Readiness */}
+          <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-900 to-green-950 text-white shadow-sm space-y-1">
+            <h5 className="font-bold text-xs uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+              <span>🏆</span> Hiring Readiness Recommendation
+            </h5>
+            <p className="text-xs text-emerald-50 leading-relaxed">{aiReport.hiringReadiness}</p>
+          </div>
+
+          {/* Section 11: Professional Conclusion */}
+          <div className="space-y-1.5 pt-2">
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-emerald-700">
+              <span>✨</span> Professional Conclusion
+            </h4>
+            <p className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-slate-800 italic">{aiReport.conclusion}</p>
+          </div>
+
+        </div>
+      ) : (
+        !isEvaluating && (
+          <div className="py-16 text-center text-slate-400">
+            <FileText className="w-10 h-10 mx-auto opacity-40 text-slate-400 mb-2" />
+            <p className="text-xs font-semibold text-slate-600">No AI Report Generated Yet</p>
+            <p className="text-[11px] text-slate-400 mt-1">Start and complete an interview round to view your 400+ word detailed evaluation report.</p>
+          </div>
+        )
+      )}
+    </div>
+  );
+};
